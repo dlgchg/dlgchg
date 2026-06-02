@@ -22,56 +22,50 @@ export default function ResultCard({ result }: ResultCardProps) {
     if (!cardRef.current) return;
     setSharing(true);
     try {
-      // 临时移除 oklab 颜色，html2canvas 不支持
       const el = cardRef.current;
-      const allElements = el.querySelectorAll('*');
-      const savedStyles: { el: Element; prop: string; val: string }[] = [];
 
-      allElements.forEach((child) => {
-        const computed = window.getComputedStyle(child);
-        ['color', 'backgroundColor', 'borderColor', 'boxShadow', 'background'].forEach((prop) => {
-          const val = computed.getPropertyValue(prop as any);
-          // html2canvas / dom-to-image 不支持 lab()/oklab()/color-mix() 等新函数，尝试用 computed 的解析值覆盖
-          if (
-            val && (
-              val.includes('oklab') ||
-              val.includes('lab(') ||
-              val.includes('in oklab') ||
-              val.includes('in lab') ||
-              val.includes('color-mix')
-            )
-          ) {
-            savedStyles.push({ el: child, prop, val: (child as HTMLElement).style.getPropertyValue(prop) });
-            // 用 computed 的 resolved 颜色覆盖（浏览器已将这些函数解析为 rgb / rgba）
-            (child as HTMLElement).style.setProperty(prop, computed.getPropertyValue(prop as any));
-          }
-        });
-      });
-
-      const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(el, {
+      const { toPng } = await import('html-to-image');
+      const dataUrl = await toPng(el, {
         backgroundColor: '#0a0a1a',
-        scale: 2,
-        useCORS: true,
-        logging: false,
+        pixelRatio: 2,
+        cacheBust: true,
       });
 
-      // 恢复原始样式
-      savedStyles.forEach(({ el: child, prop, val }) => {
-        if (val) {
-          (child as HTMLElement).style.setProperty(prop, val);
-        } else {
-          (child as HTMLElement).style.removeProperty(prop);
+      // dataUrl 转 Blob
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const fileName = `灵格测试-${result.profile.title}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+
+      // 尝试使用 Web Share API（手机端有效）
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: '星座灵格测试',
+            text: `我的灵格结果是「${result.profile.title}」，快来测测你的吧！`,
+          });
+          setShareReady(true);
+          setTimeout(() => setShareReady(false), 3000);
+        } catch (shareErr: any) {
+          // 用户取消分享不算错误
+          if (shareErr.name !== 'AbortError') {
+            throw shareErr;
+          }
         }
-      });
-
-      const dataUrl = canvas.toDataURL('image/png');
-      const link = document.createElement('a');
-      link.download = `灵格测试-${result.profile.title}.png`;
-      link.href = dataUrl;
-      link.click();
-      setShareReady(true);
-      setTimeout(() => setShareReady(false), 3000);
+      } else {
+        // 降级方案：PC 端直接下载
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = url;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        setShareReady(true);
+        setTimeout(() => setShareReady(false), 3000);
+      }
     } catch (err) {
       console.error('生成分享图片失败:', err);
     } finally {
