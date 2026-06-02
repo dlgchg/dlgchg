@@ -1,10 +1,10 @@
 'use client';
 
-import { useRef, useState } from 'react';
 import { TestResult } from '@/lib/calculator';
 import { spiritColors, spiritGradients } from '@/lib/spirits';
-import SpiritIcon from './SpiritIcon';
+import { useRef, useState } from 'react';
 import ElementBar from './ElementBar';
+import SpiritIcon from './SpiritIcon';
 
 interface ResultCardProps {
   result: TestResult;
