@@ -24,14 +24,66 @@ export default function ResultCard({ result }: ResultCardProps) {
     try {
       const el = cardRef.current;
 
-      const { toPng } = await import('html-to-image');
-      const dataUrl = await toPng(el, {
-        backgroundColor: '#0a0a1a',
-        pixelRatio: 2,
-        cacheBust: true,
+      // 1. 深拷贝卡片元素
+      const clone = el.cloneNode(true) as HTMLElement;
+
+      // 2. 遍历原始元素和克隆元素，将浏览器已解析的计算样式（lab→rgb）内联到克隆元素
+      const origEls = [el, ...el.querySelectorAll('*')] as HTMLElement[];
+      const cloneEls = [clone, ...clone.querySelectorAll('*')] as HTMLElement[];
+      for (let i = 0; i < origEls.length; i++) {
+        const computed = window.getComputedStyle(origEls[i]);
+        for (let j = 0; j < computed.length; j++) {
+          const prop = computed[j];
+          cloneEls[i].style.setProperty(prop, computed.getPropertyValue(prop));
+        }
+      }
+
+      // 3. 临时移除所有样式表，防止 html-to-image 解析 lab/oklch/oklab
+      const removedNodes: { node: Element; parent: Node; next: Node | null }[] = [];
+      document.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
+        const parent = node.parentNode!;
+        const next = node.nextSibling;
+        removedNodes.push({ node, parent, next });
+        parent.removeChild(node);
       });
 
-      // dataUrl 转 Blob
+      // 4. 添加遮罩防止页面闪烁
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:#0a0a1a;z-index:99999;';
+      document.body.appendChild(overlay);
+
+      // 5. 将克隆元素加入页面（隐藏位置）
+      clone.style.position = 'fixed';
+      clone.style.left = '-9999px';
+      document.body.appendChild(clone);
+
+      let dataUrl: string | undefined;
+      try {
+        // 6. 截图（此时页面无样式表，html-to-image 不会遇到 lab()）
+        const { toPng } = await import('html-to-image');
+        dataUrl = await toPng(clone, {
+          backgroundColor: '#0a0a1a',
+          pixelRatio: 2,
+          cacheBust: true,
+        });
+      } finally {
+        // 7. 清理：移除克隆元素和遮罩
+        document.body.removeChild(clone);
+        document.body.removeChild(overlay);
+
+        // 8. 恢复所有样式表
+        removedNodes.forEach(({ node, parent, next }) => {
+          if (next) {
+            parent.insertBefore(node, next);
+          } else {
+            parent.appendChild(node);
+          }
+        });
+      }
+
+      if (!dataUrl) throw new Error('生成图片失败');
+
+      // 9. dataUrl 转 Blob
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       const fileName = `灵格测试-${result.profile.title}.png`;
